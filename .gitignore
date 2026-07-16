@@ -1,0 +1,73 @@
+# ==============================================================================
+# JEUX DE DONNÉES (DATASETS) - Strictement interdit sur Git (Trop volumineux)
+# ==============================================================================
+data/
+datasets/
+*.csv
+*.xlsx
+*.parquet
+*.jsonl
+
+# ==============================================================================
+# INFRASTRUCTURE / DOCKER / SÉCURITÉ
+# ==============================================================================
+# Fichiers contenant les mots de passe et clés secrètes (MinIO, Kafka, Postgres...)
+.env
+*.env
+infrastructure/.env
+
+# Dossiers de persistance des conteneurs (si tu montes des volumes locaux sur ton PC)
+.docker_volumes/
+infrastructure/volumes/
+postgres_data/
+minio_data/
+
+# ==============================================================================
+# ARCHITECTURE TRANSFORMATION (dbt)
+# ==============================================================================
+# Fichiers de log et de runtime dbt
+transformation/logs/
+transformation/target/
+transformation/dbt_packages/
+transformation/dbt_modules/
+
+# Fichiers de profils locaux (contient tes accès Trino/Postgres)
+profiles.yml
+~/.dbt/profiles.yml
+
+# ==============================================================================
+# INGESTION (Apache NiFi)
+# ==============================================================================
+# Fichiers temporaires de NiFi, logs et états locaux
+ingestion/logs/
+ingestion/run/
+ingestion/state/
+ingestion/database_repository/
+ingestion/flowfile_repository/
+ingestion/content_repository/
+ingestion/provenance_repository/
+
+# ==============================================================================
+# RESTITUTION / ANALYTICS (Tableau)
+# ==============================================================================
+# Fichiers de données extraites par Tableau (TDE / HYPER)
+*.hyper
+*.tde
+# Fichiers temporaires ou de sauvegarde automatique Tableau
+*.tlf
+*.twb.bak
+
+# ==============================================================================
+# SYSTÈME / ÉDITEURS DE CODE (VS Code, Mac, Windows)
+# ==============================================================================
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# Fichiers système invisibles
+.DS_Store
+Thumbs.db
