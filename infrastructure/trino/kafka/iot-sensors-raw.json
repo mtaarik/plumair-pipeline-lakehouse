@@ -1,0 +1,5 @@
+{
+    "tableName": "iot-sensors-raw",
+    "schemaName": "default",
+    "topicName": "iot-sensors-raw"
+}

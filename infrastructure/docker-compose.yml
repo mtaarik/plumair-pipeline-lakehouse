@@ -1,7 +1,11 @@
 version: '3.8'
 
 services:
-  # 1. Kafka (KRaft Mode - Persistant)
+  # ==========================================
+  # 1. COUCHE TEMPS RÉEL (Ingestion & Buffer)
+  # ==========================================
+
+  # Kafka (KRaft Mode - Persistant)
   kafka:
     image: confluentinc/cp-kafka:7.4.0
     container_name: plumair-kafka-broker
@@ -26,7 +30,7 @@ services:
     networks:
       - ocp-data-net
 
-  # 2. NiFi (Simulateur - Persistant)
+  # NiFi (Simulateur - Persistant)
   nifi:
     image: apache/nifi:1.23.2
     container_name: plumair-nifi
@@ -44,11 +48,70 @@ services:
     networks:
       - ocp-data-net
 
-# Déclaration des volumes persistants gérés par Docker
+  # ==========================================
+  # 2. COUCHE STOCKAGE & CALCUL (Lakehouse)
+  # ==========================================
+
+  # MinIO (Stockage Objet S3 compatible)
+  minio:
+    image: minio/minio
+    container_name: plumair-minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - MINIO_ROOT_USER=admin
+      - MINIO_ROOT_PASSWORD=password
+    command: server /data --console-address ":9001"
+    volumes:
+      # Stockage persistant pour garder tes fichiers Parquet / Iceberg
+      - plumair-minio-data:/data
+    networks:
+      - ocp-data-net
+
+  # PostgreSQL (Catalogue de métadonnées Iceberg)
+  postgres:
+    image: postgres:13
+    container_name: plumair-metastore
+    environment:
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=admin
+      - POSTGRES_DB=iceberg
+    ports:
+      - "5432:5432"
+    volumes:
+      # Stockage persistant pour ne pas perdre la structure de tes tables
+      - plumair-postgres-data:/var/lib/postgresql/data
+    networks:
+      - ocp-data-net
+
+  # Trino (Moteur de calcul SQL distribué)
+  trino:
+    image: trinodb/trino
+    container_name: plumair-trino
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./trino/iceberg.properties:/etc/trino/catalog/iceberg.properties
+      - ./trino/kafka.properties:/etc/trino/catalog/kafka.properties
+      - ./trino/kafka:/etc/trino/kafka
+    depends_on:
+      - minio
+      - postgres
+      - kafka
+    networks:
+      - ocp-data-net
+
+# ==========================================
+# 3. CONFIGURATION DES VOLUMES ET RÉSEAUX
+# ==========================================
+
 volumes:
   plumair-kafka-data:
   plumair-nifi-conf:
   plumair-nifi-state:
+  plumair-minio-data:
+  plumair-postgres-data:
 
 networks:
   ocp-data-net:

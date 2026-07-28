@@ -21,6 +21,13 @@ infrastructure/.env
 infrastructure/volumes/
 postgres_data/
 minio_data/
+#==============================================================================
+# ENVIRONNEMENT VIRTUEL PYTHON
+# ==============================================================================
+.venv/
+venv/
+env/
+ENV/
 
 # ==============================================================================
 # ARCHITECTURE TRANSFORMATION (dbt)
