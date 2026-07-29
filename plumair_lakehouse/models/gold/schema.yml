@@ -1,0 +1,52 @@
+version: 2
+
+models:
+  - name: gold_dim_station
+    columns:
+      - name: station_id
+        tests:
+          - not_null
+          - unique
+
+  - name: gold_dim_date
+    columns:
+      - name: date_id
+        tests:
+          - not_null
+          - unique
+  - name: gold_dim_station
+    columns:
+      - name: station_sk
+        tests: [not_null, unique]
+
+  - name: gold_fact_air_quality
+    columns:
+      - name: station_sk
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('gold_dim_station')
+                field: station_sk
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [station_id, measurement_time]
+  - name: gold_fact_alerts
+    columns:
+      - name: alert_id
+        tests: [not_null, unique]
+      - name: station_id
+        tests: [not_null]
+
+  - name: gold_fact_compliance
+    columns:
+      - name: pollutant
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['PM2.5', 'PM10', 'NO2', 'SO2']
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [station_id, date_id, pollutant]
