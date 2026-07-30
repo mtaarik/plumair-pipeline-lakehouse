@@ -49,8 +49,11 @@ SELECT
 
     -- Fraîcheur de la ligne, utile pour du monitoring de pipeline côté BI
     CURRENT_TIMESTAMP AS _loaded_at
+    c.category_id AS aqi_category_id,
 
 FROM source t
 LEFT JOIN {{ ref('gold_dim_station') }} d
     ON t.station_id = d.station_id
     AND d.is_current = TRUE
+LEFT JOIN {{ ref('gold_dim_aqi_category') }} c
+    ON t.pm25_ugm3 BETWEEN c.pm25_min AND c.pm25_max

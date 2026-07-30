@@ -50,3 +50,10 @@ models:
       - dbt_utils.unique_combination_of_columns:
           arguments:
             combination_of_columns: [station_id, date_id, pollutant]
+  - name: gold_ml_features
+    description: "Vue dénormalisée (OBT), point d'entrée officiel pour le Machine Learning. Non matérialisée : reflète en direct le dernier état du Silver."
+    columns:
+      - name: station_id
+        tests: [not_null]
+      - name: measurement_time
+        tests: [not_null]

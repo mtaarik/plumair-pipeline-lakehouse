@@ -1,0 +1,5 @@
+{
+    "tableName": "iot-emissions-alert",
+    "schemaName": "default",
+    "topicName": "iot-emissions-alert"
+}
