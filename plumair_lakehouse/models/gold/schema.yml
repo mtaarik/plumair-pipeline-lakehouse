@@ -57,3 +57,40 @@ models:
         tests: [not_null]
       - name: measurement_time
         tests: [not_null]
+  - name: gold_kpi_compliance_rate_monthly
+    description: "KPI mensuel de taux de dépassement réglementaire par station et polluant."
+    columns:
+      - name: taux_depassement_pct
+        tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 100
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [station_id, year, month, pollutant, averaging_period]
+
+  - name: gold_kpi_air_quality_monthly
+    description: "KPI mensuel agrégé de qualité de l'air et de conditions de dispersion par station."
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [station_id, year, month]
+  - name: gold_dim_operator
+    description: "SYNTHÉTIQUE — Référentiel d'opérateurs générés artificiellement (Faker), sans lien avec des personnes réelles. Utilisé uniquement pour démontrer un KPI opérationnel de temps de réponse."
+    columns:
+      - name: operator_id
+        tests: [not_null, unique]
+
+  - name: gold_fact_alert_response
+    description: "SYNTHÉTIQUE — Temps de réponse simulé par alerte, dérivé de manière déterministe (hash de alert_id), non issu d'un système de ticketing réel."
+    columns:
+      - name: alert_id
+        tests:
+          - not_null
+          - unique
+          - relationships:
+              arguments:
+                to: ref('gold_fact_alerts')
+                field: alert_id
