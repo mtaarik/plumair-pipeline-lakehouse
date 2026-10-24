@@ -7,6 +7,8 @@ datasets/
 *.xlsx
 *.parquet
 *.jsonl
+# Exception : les seeds dbt sont des référentiels versionnés (catégories AQI, seuils, opérateurs)
+!plumair_lakehouse/seeds/*.csv
 
 # ==============================================================================
 # INFRASTRUCTURE / DOCKER / SÉCURITÉ
@@ -41,6 +43,14 @@ transformation/dbt_modules/
 # Fichiers de profils locaux (contient tes accès Trino/Postgres)
 profiles.yml
 ~/.dbt/profiles.yml
+# Exception : profil du conteneur Airflow (aucun secret, connexion interne trino:8080)
+!infrastructure/airflow/profiles/profiles.yml
+.user.yml
+
+# Logs dbt et Airflow
+logs/
+infrastructure/airflow/logs/
+__pycache__/
 
 # ==============================================================================
 # INGESTION (Apache NiFi)
