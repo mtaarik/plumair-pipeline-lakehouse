@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # ==========================================
   # 1. COUCHE TEMPS RÉEL (Ingestion & Buffer)
@@ -26,13 +24,44 @@ services:
       CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
     volumes:
       # Volume nommé pour sauvegarder les topics et messages Kafka
-      - plumair-kafka-data:/var/lib/kafka/data
+      - plumair-kafka-logs:/var/lib/kafka/data
     networks:
       - ocp-data-net
 
-  # NiFi (Simulateur - Persistant)
+  # Création explicite des topics (convention <domaine>-<entité>-<statut>)
+  # 1 partition par topic : ordre total des offsets, prérequis du curseur incrémental dbt (kafka_offset)
+  kafka-init:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: plumair-kafka-init
+    depends_on:
+      - kafka
+    command: >
+      bash -c "cub kafka-ready -b kafka:29092 1 60 &&
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic iot-sensors-raw --partitions 1 --replication-factor 1 &&
+      kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic iot-emissions-alert --partitions 1 --replication-factor 1"
+    networks:
+      - ocp-data-net
+
+  # Interface web Kafka (inspection des topics et des messages)
+  kafka-ui:
+    image: provectuslabs/kafka-ui:v0.7.2
+    container_name: plumair-kafka-ui
+    ports:
+      - "8082:8080"
+    environment:
+      - KAFKA_CLUSTERS_0_NAME=plumair
+      - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:29092
+    depends_on:
+      - kafka
+    networks:
+      - ocp-data-net
+
+  # NiFi (Simulateur - Persistant), image enrichie du driver JDBC PostgreSQL
   nifi:
-    image: apache/nifi:1.23.2
+    build:
+      context: ./nifi
+      dockerfile: Dockerfile
+    image: plumair-nifi:1.23.2
     container_name: plumair-nifi
     ports:
       - "8443:8443"
@@ -48,13 +77,30 @@ services:
     networks:
       - ocp-data-net
 
+  # PostgreSQL OLTP de la voie rapide (alertes temps réel lues par Power BI en DirectQuery)
+  postgres-ops:
+    image: postgres:13
+    container_name: plumair-ops-db
+    environment:
+      - POSTGRES_USER=ops
+      - POSTGRES_PASSWORD=ops
+      - POSTGRES_DB=plumair_ops
+    ports:
+      - "5433:5432"
+    volumes:
+      - plumair-ops-data:/var/lib/postgresql/data
+      - ./postgres-ops/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - ocp-data-net
+
   # ==========================================
   # 2. COUCHE STOCKAGE & CALCUL (Lakehouse)
   # ==========================================
 
   # MinIO (Stockage Objet S3 compatible)
   minio:
-    image: minio/minio
+    # MinIO ne publie plus de nouvelles images sur Docker Hub : on garde l'image locale (RELEASE.2025-09-07)
+    image: minio/minio:latest
     container_name: plumair-minio
     ports:
       - "9000:9000"
@@ -66,6 +112,18 @@ services:
     volumes:
       # Stockage persistant pour garder tes fichiers Parquet / Iceberg
       - plumair-minio-data:/data
+    networks:
+      - ocp-data-net
+
+  # Création idempotente du bucket racine du Lakehouse (client mc embarqué dans l'image MinIO)
+  minio-init:
+    image: minio/minio:latest
+    container_name: plumair-minio-init
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "until mc alias set local http://minio:9000 admin password; do sleep 2; done &&
+      mc mb --ignore-existing local/plumair-lake"
     networks:
       - ocp-data-net
 
@@ -82,12 +140,14 @@ services:
     volumes:
       # Stockage persistant pour ne pas perdre la structure de tes tables
       - plumair-postgres-data:/var/lib/postgresql/data
+      # Tables internes du catalogue JDBC Iceberg (premier démarrage uniquement)
+      - ./postgres-metastore/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     networks:
       - ocp-data-net
 
   # Trino (Moteur de calcul SQL distribué)
   trino:
-    image: trinodb/trino
+    image: trinodb/trino:483
     container_name: plumair-trino
     ports:
       - "8080:8080"
@@ -102,16 +162,112 @@ services:
     networks:
       - ocp-data-net
 
+  # ==========================================
+  # 3. ORCHESTRATION (Apache Airflow)
+  # ==========================================
+
+  postgres-airflow:
+    image: postgres:13
+    container_name: plumair-airflow-db
+    environment:
+      - POSTGRES_USER=airflow
+      - POSTGRES_PASSWORD=airflow
+      - POSTGRES_DB=airflow
+    volumes:
+      - plumair-airflow-db-data:/var/lib/postgresql/data
+    networks:
+      - ocp-data-net
+
+  airflow-init:
+    build:
+      context: ./airflow
+      dockerfile: Dockerfile
+    image: plumair-airflow-dbt:2.8.2
+    container_name: plumair-airflow-init
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres-airflow/airflow
+      - AIRFLOW__CORE__FERNET_KEY=46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLbfzqDDho=
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+    depends_on:
+      - postgres-airflow
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ../plumair_lakehouse:/opt/airflow/dbt_project
+      - ./airflow/profiles:/opt/airflow/.dbt
+    command: >
+      bash -c "airflow db migrate &&
+      (airflow users create --username admin --firstname Admin --lastname PlumAir --role Admin --email admin@plumair.com --password admin || true)"
+    networks:
+      - ocp-data-net
+
+  airflow-webserver:
+    build:
+      context: ./airflow
+      dockerfile: Dockerfile
+    image: plumair-airflow-dbt:2.8.2
+    container_name: plumair-airflow-webserver
+    restart: always
+    depends_on:
+      postgres-airflow:
+        condition: service_started
+      airflow-init:
+        condition: service_completed_successfully
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres-airflow/airflow
+      - AIRFLOW__CORE__FERNET_KEY=46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLbfzqDDho=
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ../plumair_lakehouse:/opt/airflow/dbt_project
+      - ./airflow/profiles:/opt/airflow/.dbt
+    networks:
+      - ocp-data-net
+    command: webserver
+
+  airflow-scheduler:
+    build:
+      context: ./airflow
+      dockerfile: Dockerfile
+    image: plumair-airflow-dbt:2.8.2
+    container_name: plumair-airflow-scheduler
+    restart: always
+    depends_on:
+      postgres-airflow:
+        condition: service_started
+      airflow-init:
+        condition: service_completed_successfully
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres-airflow/airflow
+      - AIRFLOW__CORE__FERNET_KEY=46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLbfzqDDho=
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ../plumair_lakehouse:/opt/airflow/dbt_project
+      - ./airflow/profiles:/opt/airflow/.dbt
+    networks:
+      - ocp-data-net
+    command: scheduler
+
 # ==========================================
-# 3. CONFIGURATION DES VOLUMES ET RÉSEAUX
+# 4. CONFIGURATION DES VOLUMES ET RÉSEAUX
 # ==========================================
 
 volumes:
-  plumair-kafka-data:
+  plumair-kafka-logs:
   plumair-nifi-conf:
   plumair-nifi-state:
   plumair-minio-data:
   plumair-postgres-data:
+  plumair-ops-data:
+  plumair-airflow-db-data:
 
 networks:
   ocp-data-net:
