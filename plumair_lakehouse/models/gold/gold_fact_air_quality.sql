@@ -1,17 +1,30 @@
 {{ config(
     materialized='incremental',
     unique_key=['station_id', 'measurement_time'],
-    incremental_strategy='merge'
+    incremental_strategy='merge',
+    on_schema_change='append_new_columns'
 ) }}
 
 WITH source AS (
     SELECT *
     FROM {{ ref('silver_telemetry') }}
     {% if is_incremental() %}
-        WHERE ingestion_timestamp > (
-            SELECT COALESCE(MAX(ingestion_timestamp), TIMESTAMP '1970-01-01') FROM {{ this }}
+        -- Watermark sur l'horodatage Kafka propagé depuis Silver (1 minute de recouvrement,
+        -- merge idempotent). Un curseur sur _loaded_at, horloge du run, perdrait les messages
+        -- arrivés dans Kafka pendant l'exécution d'un run.
+        WHERE ingestion_timestamp >= (
+            SELECT COALESCE(MAX(_meta_kafka_ingestion_ts), TIMESTAMP '1970-01-01') - INTERVAL '1' MINUTE
+            FROM {{ this }}
         )
     {% endif %}
+),
+
+-- Pré-calcul de la première date de validité pour contourner la limitation de Trino
+dim_station_enhanced AS (
+    SELECT 
+        *,
+        MIN(valid_from) OVER (PARTITION BY station_id) AS first_valid_from
+    FROM {{ ref('gold_dim_station') }}
 )
 
 SELECT
@@ -29,7 +42,7 @@ SELECT
     t.precipitation_mm, t.precipitation_is_outlier,
     t.cloud_cover_percent, t.cloud_cover_is_outlier,
 
-    -- Polluants (jeu complet, requis par gold_fact_compliance et les dashboards multi-polluants)
+    -- Polluants
     t.pm25_ugm3, t.pm25_is_outlier,
     t.pm10_ugm3, t.pm10_is_outlier,
     t.co_ugm3, t.co_is_outlier,
@@ -39,21 +52,31 @@ SELECT
     t.dust_ugm3, t.dust_is_outlier,
     t.aod,
 
-    -- Contexte (justifie le pivot de dataset, section 5.3)
+    -- Contexte
     t.temp_inversion,
     t.festival_period,
     t.crop_burning_season,
 
-    -- Traçabilité, non-officielle (voir gold_fact_compliance pour la classification officielle)
+    -- Traçabilité
     t.pm25_category_india_source,
 
-    -- Fraîcheur de la ligne, utile pour du monitoring de pipeline côté BI
-    CURRENT_TIMESTAMP AS _loaded_at
+    -- Catégorie AQI issue de la dimension
     c.category_id AS aqi_category_id,
 
+    -- Lignage technique (à masquer dans Power BI) : curseur incrémental et mesure de fraîcheur
+    t.meta_ingested_at AS _meta_ingested_at,
+    t.ingestion_timestamp AS _meta_kafka_ingestion_ts,
+
+    -- Fraîcheur de la ligne (Corrigé pour Iceberg)
+    CAST(CURRENT_TIMESTAMP AS TIMESTAMP(6)) AS _loaded_at
+
 FROM source t
-LEFT JOIN {{ ref('gold_dim_station') }} d
+LEFT JOIN dim_station_enhanced d
     ON t.station_id = d.station_id
-    AND d.is_current = TRUE
+    AND (
+        t.measurement_time >= d.valid_from 
+        OR d.valid_from = d.first_valid_from
+    )
+    AND (d.valid_to IS NULL OR t.measurement_time < d.valid_to)
 LEFT JOIN {{ ref('gold_dim_aqi_category') }} c
     ON t.pm25_ugm3 BETWEEN c.pm25_min AND c.pm25_max

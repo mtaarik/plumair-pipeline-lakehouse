@@ -1,21 +1,28 @@
 {{ config(
     materialized='incremental',
     unique_key=['station_id', 'measurement_time'],
-    incremental_strategy='merge'
+    incremental_strategy='merge',
+    on_schema_change='append_new_columns'
 ) }}
 
 WITH raw_data AS (
     SELECT raw_payload, kafka_ingestion_ts, kafka_offset
     FROM {{ ref('bronze_stations_raw') }}
     {% if is_incremental() %}
-        WHERE kafka_offset > (SELECT COALESCE(MAX(kafka_offset), -1) FROM {{ this }})
+        -- Watermark sur l'horodatage Kafka avec 1 minute de recouvrement : le merge étant
+        -- idempotent, relire quelques lignes est sans effet, et le filtre profite du
+        -- partitionnement Bronze par jour.
+        WHERE kafka_ingestion_ts >= (
+            SELECT COALESCE(MAX(ingestion_timestamp), TIMESTAMP '1970-01-01') - INTERVAL '1' MINUTE
+            FROM {{ this }}
+        )
     {% endif %}
 ),
 
 parsed_data AS (
     SELECT
         CAST(json_extract_scalar(raw_payload, '$.StationId') AS VARCHAR) AS station_id,
-        TRY_CAST(json_extract_scalar(raw_payload, '$.Datetime') AS TIMESTAMP) AS measurement_time,
+        TRY_CAST(json_extract_scalar(raw_payload, '$.Datetime') AS TIMESTAMP(6)) AS measurement_time,
 
         -- Météo (mesures brutes)
         TRY_CAST(json_extract_scalar(raw_payload, '$.Temp_2m_C') AS DOUBLE) AS raw_temperature,
@@ -58,6 +65,11 @@ parsed_data AS (
         -- Traçabilité source (propagée telle quelle, pas recalculée en Silver)
         CAST(json_extract_scalar(raw_payload, '$.PM25_Category_India') AS VARCHAR) AS pm25_category_india_source,
 
+        -- Processing Time posé par NiFi juste après le ControlRate (format yyyy-MM-dd HH:mm:ss.SSS, UTC).
+        -- Les messages publiés avant la correction du flux portent un format non ISO : NULL ici.
+        TRY_CAST(json_extract_scalar(raw_payload, '$._meta_ingested_at') AS TIMESTAMP(6)) AS meta_ingested_at,
+
+        kafka_ingestion_ts,
         kafka_ingestion_ts AS ingestion_timestamp,
         kafka_offset
     FROM raw_data
@@ -68,7 +80,7 @@ deduplicated AS (
     SELECT *,
         ROW_NUMBER() OVER (
             PARTITION BY station_id, measurement_time
-            ORDER BY kafka_offset DESC
+            ORDER BY kafka_ingestion_ts DESC, kafka_offset DESC
         ) AS rn
     FROM parsed_data
 )
@@ -144,6 +156,7 @@ SELECT
     -- Traçabilité, non recalculée ici (le recalcul officiel se fait en Gold via gold_dim_pollution_threshold)
     pm25_category_india_source,
 
+    meta_ingested_at,
     ingestion_timestamp,
     kafka_offset
 

@@ -1,0 +1,7 @@
+category_id,category_label,pm25_min,pm25_max,source
+1,Good,0,30,CPCB National AQI
+2,Satisfactory,31,60,CPCB National AQI
+3,Moderate,61,90,CPCB National AQI
+4,Poor,91,120,CPCB National AQI
+5,Very Poor,121,250,CPCB National AQI
+6,Severe,251,100000,CPCB National AQI

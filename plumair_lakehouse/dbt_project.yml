@@ -18,6 +18,10 @@ seed-paths: ["seeds"]
 macro-paths: ["macros"]
 snapshot-paths: ["snapshots"]
 
+flags:
+  # Connexion interne en HTTP vers Trino : active dès maintenant le comportement futur de dbt-trino
+  require_certificate_validation: true
+
 clean-targets:         # directories to be removed by `dbt clean`
   - "target"
   - "dbt_packages"
@@ -38,3 +42,6 @@ models:
       +schema: silver
     gold:
       +schema: gold
+seeds:
+  plumair_lakehouse:
+    +schema: gold

@@ -3,10 +3,10 @@ version: 2
 models:
   - name: gold_dim_station
     columns:
+      - name: station_sk
+        tests: [not_null, unique]
       - name: station_id
-        tests:
-          - not_null
-          - unique
+        tests: [not_null, unique]
 
   - name: gold_dim_date
     columns:
@@ -14,10 +14,6 @@ models:
         tests:
           - not_null
           - unique
-  - name: gold_dim_station
-    columns:
-      - name: station_sk
-        tests: [not_null, unique]
 
   - name: gold_fact_air_quality
     columns:
@@ -77,12 +73,6 @@ models:
       - dbt_utils.unique_combination_of_columns:
           arguments:
             combination_of_columns: [station_id, year, month]
-  - name: gold_dim_operator
-    description: "SYNTHÉTIQUE — Référentiel d'opérateurs générés artificiellement (Faker), sans lien avec des personnes réelles. Utilisé uniquement pour démontrer un KPI opérationnel de temps de réponse."
-    columns:
-      - name: operator_id
-        tests: [not_null, unique]
-
   - name: gold_fact_alert_response
     description: "SYNTHÉTIQUE — Temps de réponse simulé par alerte, dérivé de manière déterministe (hash de alert_id), non issu d'un système de ticketing réel."
     columns:

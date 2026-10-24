@@ -1,0 +1,20 @@
+version: 2
+
+seeds:
+  - name: gold_dim_operator
+    description: "SYNTHÉTIQUE — Référentiel d'opérateurs générés artificiellement (Faker), sans lien avec des personnes réelles. Utilisé uniquement pour démontrer un KPI opérationnel de temps de réponse."
+    config:
+      schema: gold
+    columns:
+      - name: operator_id
+        tests:
+          - not_null
+          - unique
+
+  - name: gold_dim_aqi_category
+    config:
+      schema: gold
+
+  - name: gold_dim_pollution_threshold
+    config:
+      schema: gold
