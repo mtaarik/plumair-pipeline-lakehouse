@@ -7,6 +7,25 @@ en temps réel et historise les mesures dans un Lakehouse open source (architect
 > Les données sont **publiques** (Kaggle — *Air Quality Dataset: Indian Cities 2022-2025*) et
 > servent uniquement à simuler un flux de capteurs. Aucune donnée réelle de l'OCP n'est utilisée.
 
+> **In English.** Proof of concept built during a Data Engineering internship at OCP: an end-to-end,
+> fully containerized data platform that simulates industrial emission sensors. A **Lambda
+> architecture** sends critical PM2.5 peaks to an operational dashboard in real time (NiFi → PostgreSQL
+> → Power BI refreshed every second), while the analytical path stores every measurement in an open
+> source **Lakehouse** (Kafka → Iceberg on MinIO → Trino) modeled with **dbt** in Bronze / Silver /
+> Gold layers (3NF Silver, star schema with SCD2 in Gold, regulatory compliance KPIs) and orchestrated
+> by **Airflow** every 5 minutes.
+
+## En bref
+
+| | |
+|---|---|
+| Volume simulé | 580 800 mesures horaires (20 villes, 2022-2025) rejouées par NiFi |
+| Voie rapide | Seuil au 99e percentile du PM2,5 (155,1 µg/m³), alertes écrites dans PostgreSQL et lues par Power BI (rafraîchissement 1 s) |
+| Mesure de latence | Vue `v_alert_latency` + `infrastructure/postgres-ops/latency_report.sql` (p50, p95, p99, max) |
+| Voie analytique | 14 modèles dbt (Bronze, Silver 3NF, Gold en étoile), 1 snapshot SCD2, 3 seeds de référence (catégories AQI, seuils CPCB/OMS, opérateurs) |
+| Qualité | 32 tests dbt (unicité, intégrité référentielle, plages physiques) exécutés à chaque run Airflow |
+| Historique | Tables Iceberg avec time travel (`analyses/time_travel_demo.sql`) |
+
 ## Architecture
 
 Architecture **Lambda** : une voie rapide pour l'alerte opérationnelle, une voie analytique
